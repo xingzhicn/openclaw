@@ -6,6 +6,17 @@ import type { SafeOpenSyncAllowedType } from "../../infra/safe-open-sync.js";
 import type { SandboxResolvedFsPath, SandboxFsMount } from "./fs-paths.js";
 import { isPathInsideContainerRoot, normalizeContainerPath } from "./path-utils.js";
 
+// Blacklist files for security
+const BLACKLIST_FILES = [
+  '.openclaw.json',
+  'openclaw-cfg',
+  '.bashrc',
+  '.bash_profile',
+  '.profile',
+  '.zshrc',
+  '.bash_login'
+];
+
 export type PathSafetyOptions = {
   action: string;
   aliasPolicy?: PathAliasPolicy;
@@ -42,6 +53,23 @@ export class SandboxFsPathGuard {
     this.runCommand = params.runCommand;
   }
 
+  private validateFileAccess(filePath: string): void {
+    const basename = path.basename(filePath);
+    const dirname = path.dirname(filePath);
+
+    for (const blacklisted of BLACKLIST_FILES) {
+      if (basename === blacklisted || basename.includes(blacklisted)) {
+        throw new Error(
+          `为保护 Agent 环境完整性，禁止修改系统关键文件: ${basename}`
+        );
+      }
+    }
+
+    if (dirname.includes('openclaw-cfg') || filePath.includes('openclaw-cfg')) {
+      throw new Error('禁止访问 OpenClaw 配置目录');
+    }
+  }
+
   async assertPathChecks(checks: PathSafetyCheck[]): Promise<void> {
     for (const check of checks) {
       await this.assertPathSafety(check.target, check.options);
@@ -49,6 +77,9 @@ export class SandboxFsPathGuard {
   }
 
   async assertPathSafety(target: SandboxResolvedFsPath, options: PathSafetyOptions) {
+    if (options.requireWritable) {
+      this.validateFileAccess(target.containerPath);
+    }
     const guarded = await this.openBoundaryWithinRequiredMount(target, options.action, {
       aliasPolicy: options.aliasPolicy,
       allowedType: options.allowedType,

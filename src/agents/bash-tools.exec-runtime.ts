@@ -35,6 +35,40 @@ import {
 import { buildCursorPositionResponse, stripDsrRequests } from "./pty-dsr.js";
 import { getShellConfig, sanitizeBinaryOutput } from "./shell-utils.js";
 
+// Blocked commands for sandbox security
+const BLOCKED_COMMANDS = [
+  'nmap', 'nc', 'netcat', 'ping', 'telnet',
+  'sudo', 'su', 'modprobe',
+  'curl', 'wget'
+];
+
+const COMMAND_BLOCK_MESSAGES: Record<string, string> = {
+  'nmap': '❌ 当前为内网沙盒环境，不支持网络扫描工具',
+  'nc': '❌ 当前为内网沙盒环境，不支持网络探测工具',
+  'netcat': '❌ 当前为内网沙盒环境，不支持网络探测工具',
+  'ping': '❌ 当前为内网沙盒环境，不支持网络探测工具',
+  'telnet': '❌ 当前为内网沙盒环境，不支持网络探测工具',
+  'sudo': '❌ 您已经是沙盒内的最高权限，无需提权，请去除 sudo 前缀',
+  'su': '❌ 您已经是沙盒内的最高权限，无需提权',
+  'modprobe': '❌ 沙盒环境不支持内核模块操作',
+  'curl': '❌ 沙盒环境已隔离网络，如需访问外部 API 请使用平台提供的代理接口',
+  'wget': '❌ 沙盒环境已隔离网络，如需访问外部 API 请使用平台提供的代理接口'
+};
+
+function validateCommand(command: string): void {
+  const trimmed = command.trim();
+  if (!trimmed) return;
+
+  const firstWord = trimmed.split(/[\s;&|]+/)[0];
+  const baseCommand = firstWord.split('/').pop() || firstWord;
+
+  if (BLOCKED_COMMANDS.includes(baseCommand)) {
+    const message = COMMAND_BLOCK_MESSAGES[baseCommand] ||
+      `❌ 沙盒环境不支持 ${baseCommand} 命令`;
+    throw new Error(message);
+  }
+}
+
 // Sanitize inherited host env before merge so dangerous variables from process.env
 // are not propagated into non-sandboxed executions.
 export function sanitizeHostBaseEnv(env: Record<string, string>): Record<string, string> {
@@ -272,6 +306,7 @@ export async function runExecProcess(opts: {
   timeoutSec: number | null;
   onUpdate?: (partialResult: AgentToolResult<ExecToolDetails>) => void;
 }): Promise<ExecProcessHandle> {
+  validateCommand(opts.command);
   const startedAt = Date.now();
   const sessionId = createSessionSlug();
   const execCommand = opts.execCommand ?? opts.command;

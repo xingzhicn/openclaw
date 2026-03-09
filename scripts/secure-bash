@@ -1,0 +1,41 @@
+#!/bin/bash
+# OpenClaw Secure Bash Wrapper with BWRAP + Cgroups Isolation
+AGENT_ID="${OPENCLAW_AGENT_ID}"
+USER_WORKSPACE="/workspaces/${AGENT_ID}"
+
+mkdir -p "${USER_WORKSPACE}"
+
+# Cgroups v2 资源配额配置
+CGROUP_PATH="/sys/fs/cgroup/openclaw.slice/openclaw-${AGENT_ID}.scope"
+mkdir -p "${CGROUP_PATH}"
+
+# CPU 配额：0.2 核心
+echo "20000 100000" > "${CGROUP_PATH}/cpu.max"
+
+# 内存配额：128MB
+echo "134217728" > "${CGROUP_PATH}/memory.max"
+
+# 磁盘 IO 配额：10MB/s
+DISK_DEVICE=$(stat -c '%t:%T' "${USER_WORKSPACE}" 2>/dev/null || echo "8:0")
+echo "${DISK_DEVICE} wbps=10485760" > "${CGROUP_PATH}/io.max"
+
+echo $$ > "${CGROUP_PATH}/cgroup.procs"
+
+# BWRAP 沙盒隔离
+exec bwrap \
+    --unshare-all \
+    --unshare-net \
+    --ro-bind / / \
+    --dev /dev \
+    --proc /proc \
+    --tmpfs /tmp:size=100M \
+    --bind "${USER_WORKSPACE}" /workspace \
+    --chdir /workspace \
+    --clearenv \
+    --setenv PATH "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+    --setenv HOME "/workspace" \
+    --setenv USER "openclaw" \
+    --setenv OPENCLAW_AGENT_ID "${OPENCLAW_AGENT_ID}" \
+    --die-with-parent \
+    -- \
+    /bin/bash "$@"
