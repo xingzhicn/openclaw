@@ -40,6 +40,12 @@ export function resolvePowerShellPath(): string {
 }
 
 export function getShellConfig(): { shell: string; args: string[] } {
+  // Check for custom shell executor (e.g., secure-bash for sandboxing)
+  const customShell = process.env.OPENCLAW_SHELL_EXEC?.trim();
+  if (customShell && customShell.length > 0) {
+    return { shell: customShell, args: ["-c"] };
+  }
+
   if (process.platform === "win32") {
     // Use PowerShell instead of cmd.exe on Windows.
     // Problem: Many Windows system utilities (ipconfig, systeminfo, etc.) write
